@@ -1,0 +1,203 @@
+---
+title: "Tidymodels"
+author: "Nabil"
+date: "08/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(readr)
+library(broom.mixed)
+library(dotwhisker)
+
+```
+
+# Build a model
+
+## Dados
+
+Utilizaremos os dados sobre ouriços. Existem 3 tipos de regimes de alimentação que afetam o tamanho do ouriço ao longo do tempo. Além disso, o tamanho inicial do ouriço provavelmente também afeta o quanto eles crescem.
+
+```{r}
+urchins <-
+  # Data were assembled for a tutorial 
+  # at https://www.flutterbys.com.au/stats/tut/tut7.5a.html
+  read_csv("https://tidymodels.org/start/models/urchins.csv") %>% 
+  # Change the names to be a little more verbose
+  setNames(c("food_regime", "initial_volume", "width")) %>% 
+  # Factors are very helpful for modeling, so we convert one column
+  mutate(food_regime = factor(food_regime, levels = c("Initial", "Low", "High")))
+
+urchins
+```
+`food_regime` é o regime de alimentação experimental do grupo; `initial_volume` é o tamanho inicial em milimetros ;`widht` comprimento do ouriço no final do experimento
+
+## Plot
+
+O primeiro passo ao criar um modelo é plotar os dados.
+
+```{r}
+ggplot(urchins,
+       aes(x = initial_volume, 
+           y = width, 
+           group = food_regime, 
+           col = food_regime)) + 
+  geom_point() + 
+  geom_smooth(method = lm, se = FALSE) +
+  scale_color_viridis_d(option = "plasma", end = .7)+
+  theme(legend.position = "top")
+#> `geom_smooth()` using formula 'y ~ x'
+
+```
+
+Os dados mostram que ouriços com um volume inicial maior cresceram mais que aqueles que tinham um volume inicial menor. Além disso, o modelo linear mostra inclinações diferentes a depender do regime do ouriço
+
+
+## Construir e montar um modelo
+
+Sabemos que temos duas variáveis continuas e uma categórica o modelo `ANOVA` de variância bidirecional, serve para a análise.
+
+Dado que a inclinação aparenta ser diferente ao menos entre dois regimes construimos o modelo de interação  bidirecional abaixo
+
+` width ~ initial_volume * food_regime `
+
+Para esse modelo, MQO parece servis. Através do pacote `parsnip` podemos criar um modelo linar dado que o resultado é numerico e o modelo deve ser linear com inclinações e intercepto.
+
+`linear_reg()`
+
+Agora que o tipo de modelo foi especificado podemos criar um método que monte e treine o modelo, utilizando o mecanismo `lm` que utiliza MQO.
+
+
+```{r}
+lm_mod <- linear_reg() %>% 
+   set_engine("lm")
+```
+
+Após criar o objeto, o modelo pode ser estimado ou treinado utilizando a função `fit()`
+
+```{r}
+lm_fit <- 
+  lm_mod %>% 
+  fit(width ~ initial_volume * food_regime, data = urchins)
+lm_fit
+
+```
+
+Para descrever o resultado do modelo acima podemos utilizar a função `tidy()` que resulta em um summary mais preditivo e um formato mais útil.
+
+```{r}
+tidy(lm_fit)
+
+```
+
+O sumário acima pode ser plotado utilizando o pacote `dotwhisker`
+
+O gráfico acima verifica a variância, nota-se que food_regime Low e High são estatísticamente igual a 0. Mas, ao interagir com o volume inicial torna-se significativo o regime Low. 
+
+```{r}
+tidy(lm_fit) %>% 
+  dwplot(dot_args = list(size = 2, color = "black"),
+         whisker_args = list(color = "black"),
+         vline = geom_vline(xintercept = 0, colour = "grey50", linetype = 2))
+
+```
+
+## Utilizando o modelo para previsões
+
+O modelo estimado por ser adquirido a partir de `lm_fit$fit`. Supondo que os ouriços tenham o tamanho inicial de 20, com regimes diferentes, criaremos o data.frame abaixo.
+
+```{r}
+new_points <- expand.grid(initial_volume = 20, 
+                          food_regime = c("Initial", "Low", "High"))
+new_points
+
+```
+É possível adquirir os resultados, utilizando a função `predict()`. Primeiramente geraremos os valores finais médios preditos. 
+
+
+```{r}
+mean_pred <- predict(lm_fit, new_data = new_points)
+mean_pred
+
+```
+Ao criar previsões, tidymodels produz nomes padrões de coluna. Criaremos agora o intervalo de confiança dado os valores médios finais preditos.
+
+```{r}
+conf_int_pred <- predict(lm_fit, 
+                         new_data = new_points, 
+                         type = "conf_int")
+conf_int_pred
+```
+Agora jutanremos os valores previstos médios e o intervalo de confiança e por fim geraremos o gráfico.
+
+```{r}
+plot_data <- 
+  new_points %>% 
+  bind_cols(mean_pred) %>% 
+  bind_cols(conf_int_pred)
+
+# and plot:
+ggplot(plot_data, aes(x = food_regime)) + 
+  geom_point(aes(y = .pred)) + 
+  geom_errorbar(aes(ymin = .pred_lower, 
+                    ymax = .pred_upper),
+                width = .2) + 
+  labs(y = "urchin size")
+```
+## Modelo com mecanismo diferente `(!= lm)`.
+
+Utilizaremos uma abordagem bayesiana. Para essa análise, precisamos declarar a distribuição do modelo, utilizaremos uma distribuição conservadora, Cauchy distribution. `linear_reg()` tem o meanismo stan que estima o modelo.
+
+Análise bayesiana utiliza dados randomicos, usaremos a função `set.seed()` pque geram numeros pseudo-random (reproduzir análise). 
+
+```{r}
+# set the prior distribution
+prior_dist <- rstanarm::student_t(df = 1)
+
+set.seed(123)
+
+# make the parsnip model
+bayes_mod <-   
+  linear_reg() %>% 
+  set_engine("stan", 
+             prior_intercept = prior_dist, 
+             prior = prior_dist) 
+
+# train the model
+bayes_fit <- 
+  bayes_mod %>% 
+  fit(width ~ initial_volume * food_regime, data = urchins)
+
+print(bayes_fit, digits = 5)
+
+```
+A função `tidy()` é possível tabelas os resultados.
+
+```{r}
+tidy(bayes_fit, conf.int = TRUE)
+```
+
+Plotando os valores previstos, dado o valor inicial de 20.
+
+```{r}
+bayes_plot_data <- 
+  new_points %>% 
+  bind_cols(predict(bayes_fit, new_data = new_points)) %>% 
+  bind_cols(predict(bayes_fit, new_data = new_points, type = "conf_int"))
+
+ggplot(bayes_plot_data, aes(x = food_regime)) + 
+  geom_point(aes(y = .pred)) + 
+  geom_errorbar(aes(ymin = .pred_lower, ymax = .pred_upper), width = .2) + 
+  labs(y = "urchin size") + 
+  ggtitle("Bayesian model with t(1) prior distribution")
+
+```
+Conclui-se que a diferença entre stan e lm não é muito visível.
+
+#  Preprocess your data with recipes
+
+## introdução
+
+

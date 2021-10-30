@@ -1,0 +1,63 @@
+---
+title: "tidymodels_datacamp"
+author: "Nabil"
+date: "17/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+## Data resampling
+
+```{r}
+library(tidymodels)
+
+# resampling - 75 to train and 25 to test
+mpg_split <- initial_split(mpg,
+                           prop = 0.75,
+                           strata = hwy)
+
+# sep training data model
+
+mpg_training <- mpg_split %>% 
+  training()
+
+# sep test data model
+mpg_test <- mpg_split %>% 
+  testing()
+
+```
+## Linear Regression Model - Parsnip
+
+Permite syntax universal
+1. tipo de modelo -> 2. tipo de maquina -> 3. tipo de modo
+
+
+```{r}
+# criando objeto parsnip 
+lm_model <- linear_reg() %>% 
+  set_engine("lm") %>% 
+  set_mode("regression")
+
+# Treinando o modelo - extraindo os coeficientes
+lm_fit <- lm_model %>% 
+  fit(hwy ~ cty, data = mpg_training)
+
+# Summary
+tidy(lm_fit)
+
+# Modelo de previsão - extraindo os resultados dado os coeficientes
+hwy_predict <- lm_fit %>% 
+  predict(new_data = mpg_test)
+
+# Adicionando as previsões para os dados de teste
+mpg_test_results <- mpg_test %>% 
+  select(hwy, cty) %>% 
+  bind_cols(hwy_predict)
+
+
+```
+

@@ -1,0 +1,354 @@
+---
+title: "Learn"
+author: "Nabil"
+date: "13/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+```
+
+Tidy data / Dados organizados
+
+## Fundamentos de correlação e regressão com os princípios de tidy data.
+
+
+### Análise de correlação
+
+```{r}
+data(Orange)
+
+Orange <- as_tibble(Orange)
+Orange
+
+
+```
+
+A tibble acima contém 35 observações: árvore, idade e circumferência. Tree é um fator de 5 níveis, como esperado, idade e circunrência são correlacionadas.
+
+```{r}
+cor(Orange$age, Orange$circumference)
+
+library(ggplot2)
+
+ggplot(Orange, aes(age, circumference, color = Tree)) +
+  geom_line()
+
+```
+
+Vamos supor que queiramos testar a correlação de acordo com o tipo da ávore, podemos fazer um `group_by`.
+
+```{r}
+Orange %>% 
+  group_by(Tree) %>%
+  summarize(correlation = cor(age, circumference))
+```
+
+Nota-se que a correlação é bem maior do que a correlação com os dados agrupados. Agora, ao invés de apenas saber o resultado da correlação, queremos o teste de hipótese.
+
+```{r}
+ct <- cor.test(Orange$age, Orange$circumference)
+ct
+```
+P valor, deu um valor baixo, podemos então descartar a hipótese nula e seguir com a alguternativa de que a correlação é estatisticamente diferente de 0. Podemos organizar os resultados utilizando a função `tidy()`
+
+```{r}
+tidy(ct)
+```
+
+Muitas vezes queremos fazer muitos testes de correlação seguidas, nesse caso, é recomendado o fluxo `nest-map-unnest`. Vamos fazer o teste para cada tipo de árvore, começamos com `nest` nos dados baseando no grupo de interesse.
+
+```{r}
+nested <- 
+  Orange %>% 
+  nest(data = c(age, circumference))
+
+```
+
+Depois façamos o teste de correlação com a função `purrr::map()`.
+
+```{r}
+nested %>% 
+  mutate(test = map(data, ~ cor.test(.x$age, .x$circumference)))
+
+```
+
+Adicionamos os resultados a tibble com a mesma função `map()`.
+
+```{r}
+nested %>% 
+  mutate(
+    test = map(data, ~ cor.test(.x$age, .x$circumference)), # S3 list-col
+    tidied = map(test, tidy)
+  ) 
+```
+
+Portanto, fizemos o nest, o teste e agora faremos o unested.Juntando tudo, o resultado final é:
+
+```{r}
+Orange %>% 
+  nest(data = c(age, circumference)) %>% 
+  mutate(
+    test = map(data, ~ cor.test(.x$age, .x$circumference)), # S3 list-col
+    tidied = map(test, tidy)
+  ) %>% 
+  unnest(cols = tidied) %>% 
+  select(-data, -test)
+```
+
+### Modelos de regressão
+
+Esse workflow, `nest-map-unest`,  também é útil ao ser aplicado para regressões. resultados untidy de regressões são:
+
+```{r}
+lm_fit <- lm(age ~ circumference, data = Orange)
+summary(lm_fit)
+
+```
+Ao fazer o `tidy()` temos uma linha para cada variável.
+
+```{r}
+tidy(lm_fit)
+
+```
+
+Agora vamos aplicar o mesmo workflow que fizemos para o teste t para a regressão.
+
+```{r}
+Orange %>%
+  nest(data = c(-Tree)) %>%
+  mutate(
+    fit = map(data,~ lm(age ~ circumference, data = .x)),
+    tidied = map(fit, tidy)
+  ) %>%
+  unnest(tidied) %>%
+  select(-data,-fit)
+
+```
+
+Com esse método é possível gerar vários estimadores de regressão. O exemplo abaixo utiliza a base `mtcars`. É feito um `nest` entre carro automáticos e não automáticos, e aí feito um tibble nested.
+
+
+```{r}
+data(mtcars)
+mtcars <- as_tibble(mtcars)  # to play nicely with list-cols
+mtcars
+
+mtcars %>%
+  nest(data = c(-am)) %>% 
+  mutate(
+    fit = map(data, ~ lm(wt ~ mpg + qsec + gear, data = .x)),  # S3 list-col
+    tidied = map(fit, tidy)
+  ) %>% 
+  unnest(tidied) %>% 
+  select(-data, -fit)
+
+
+```
+
+Caso queira não só o `tidy()`, mas o `argument()` e `glance()` mais a regressão em um único comando, é possível fazer com o código abaixo.
+
+```{r}
+regressions <- 
+  mtcars %>%
+  nest(data = c(-am)) %>% 
+  mutate(
+    fit = map(data, ~ lm(wt ~ mpg + qsec + gear, data = .x)),
+    tidied = map(fit, tidy),
+    glanced = map(fit, glance),
+    augmented = map(fit, augment)
+  )
+
+#
+regressions %>% 
+  select(tidied) %>% 
+  unnest(tidied)
+
+#
+regressions %>% 
+  select(glanced) %>% 
+  unnest(glanced)
+
+#
+regressions %>% 
+  select(augmented) %>% 
+  unnest(augmented)
+
+
+```
+
+
+
+## Clustering K-means com princípios de dados organizados
+K-means clustering serve como um exemplo útil de aplicação de princípios de tidy data para analise estatísticas, especialmente em relação as três funções tidy - `tidy()`, `augment()` e `glance()`.
+
+Nesse exemplo utilizaremos dados bidimensional gerados randomicamente com três clusters. Os dados de cada cluster possui a distribuição gaussiniana com médias diferentes.
+
+```{r}
+set.seed(27)
+
+centers <- tibble(
+  cluster = factor(1:3), 
+  num_points = c(100, 150, 50),  # number points in each cluster
+  x1 = c(5, 0, -3),              # x1 coordinate of cluster center
+  x2 = c(-1, 1, -2)              # x2 coordinate of cluster center
+)
+
+labelled_points <- 
+  centers %>%
+  mutate(
+    x1 = map2(num_points, x1, rnorm),
+    x2 = map2(num_points, x2, rnorm)
+  ) %>% 
+  select(-num_points) %>% 
+  unnest(cols = c(x1, x2))
+
+ggplot(labelled_points, aes(x1, x2, color = cluster)) +
+  geom_point(alpha = 0.3)
+
+```
+O plot acima é um caso ideal de k-means clustering.
+
+### Clustering no R
+Função `kmeans()` aceita data.frame com colunas numéricas como primeiro argumento.
+
+```{r}
+points <- 
+  labelled_points %>% 
+  select(-cluster)
+
+kclust <- kmeans(points, centers = 3)
+kclust
+
+
+summary(kclust)
+
+```
+
+O resultado é uma lista de vetores, onde cada componente tem comprimentos diferentes. Diferentes comprimentos possuem significados diferentes quando queremos fazer um `tidy` nos dados. 
+`cluster` possui informações sobre cada ponto
+`centers`, `withinss` e `size` possuem comprimento de 3 contendo informação de cada cluster
+`totss`, `tot.withinss`, `betweenss` e `iter`possui informação sobre a clusterização total.
+
+Qual deles queremos extrair? Depende do interesse do analista. 
+Como são informações completamente diferentes, eles são extraídos a partir de funções direfentes. `augment` adiciona aos pontos as classificações ao data frame original.
+
+
+```{r}
+augment(kclust, points)
+
+```
+
+`tidy()` summariza e extrai dados por cluster.
+
+```{r}
+tidy(kclust)
+```
+E por útilo, `glance()` traz o summary do processo total de clusterização.
+
+```{r}
+glance(kclust)
+```
+
+## Clustering exploratório
+
+Apesar dos sumários acima ser útil, não é dificil de se extrair dos dados. O poder vem da combinação entre os sumários e outras ferramentas como o `dplyr`.
+
+Vamos supor, que queiramos explorar as diferenças escolhas para o `k`, de 1 a 9. Primeiramente clusterizamos os dados 9 vezes e depois criamos um base com dados tidied, glanced e augmented.
+
+```{r}
+kclusts <- 
+  tibble(k = 1:9) %>%
+  mutate(
+    kclust = map(k, ~kmeans(points,.x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, points)
+  )
+
+
+kclusts
+
+```
+A partir dessa tibble podemos criar três diferentes tipos de dados. 
+
+```{r}
+clusters <- 
+  kclusts %>%
+  unnest(cols = c(tidied))
+
+assignments <- 
+  kclusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings <- 
+  kclusts %>%
+  unnest(cols = c(glanced))
+
+```
+
+
+A partir dos objetos criados da tibble podemos plotar os dados. Com o `augment()` podemos plotar os pontos originais e categorizalos a partir dos clusters estimados.
+
+```{r}
+p1 <- 
+  ggplot(assignments, aes(x = x1, y = x2)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p1
+
+```
+
+A partir da vizualização já percebe-se que cluster com k = 3 é o mais apropriado. Para melhorar ainda mais a vizualisação podemos adicionar um `x` nos centers utilizando os dados de `tidy()`.
+
+```{r}
+p2 <- p1 + geom_point(data = clusters, size = 10, shape = "x")
+p2
+
+```
+Por último, dados originários da função `glance()` possuem uma análise diferente. Nos permite vizualizar tendencias entre summarios com k diferentes. a soma dos quadrados é salvo na coluna `tot.withinss`.
+
+```{r}
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  geom_point()
+
+```
+O gráfico representa a variância em relação aos clusteres. A variância diminui com o aumento de `k`, porém, é possível notar em 3 que a inclinação muda bastante. Isso indica que k > 3 gera pouco efeito na variância. Portanto, os três métodos de tidying do pacote `broom` são úteis para resumir os resultados da clusterização.
+
+
+## Reamostragem bootstrap e modelos de regressão tidy
+
+### Introdução
+
+Boostrap consiste em randomicamente retirar uma amostra dos dados com substituição. E analisar individualmente cada bootstrap replicados. A variação na estimativa resultante é, então, uma aproximação razoável da variação em nossa estimativa.
+
+Exemplo:
+
+```{r}
+ggplot(mtcars, aes(mpg, wt)) + 
+    geom_point()
+
+```
+Vamos utilizar o modelo de mínimos quadrados não linear para criar o modelo. `nsl()`
+
+```{r}
+nlsfit <- nls(mpg ~ k/ wt + b, mtcars, start = list(k = 1, b = 0))
+summary(nlsfit)
+
+ggplot(mtcars, aes(wt, mpg)) +
+    geom_point() +
+    geom_line(aes(y = predict(nlsfit)))
+
+```
+Os valores de K e b são significativos, porém são apenas suposições que podem não refletir a natureaz dos dados reais. Com o Bootstrapping é possível fornecer predições e intervalo de confiança mais robusto para a natureza dos dados.
+
+### Modelo Bootstrapping
+
+
+
+
+
+
