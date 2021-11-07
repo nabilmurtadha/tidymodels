@@ -58,6 +58,11 @@ mpg_test_results <- mpg_test %>%
   select(hwy, cty) %>% 
   bind_cols(hwy_predict)
 
-
 ```
+
+
+## Avaliando a peformace do modelo
+
+
+
 
