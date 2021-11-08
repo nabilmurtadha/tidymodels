@@ -289,7 +289,7 @@ test_data <- testing(data_split)
 Criaremos agora recita para regressão logit simples. Antes de treinarmos o modelo criaremos receitas para criar novas variáveis e alguns processamento.
 
 ```{r}
-flight_rec <- 
+flights_rec <- 
   recipe(arr_delay ~., data = train_data)
 ```
 
@@ -298,6 +298,87 @@ A função `recipe()` possui dois argumentos.
 1. Formula: o lado esquerdo do tio (~) é a variavel dependente e do lado direito as variáveis independentes, "." significa todas outras variáveis, é possível indicar apenas alguns.
 
 2. Dados: para o `recipe()` usualmente é utilizado os dados de treinamento.
+
+Feito isso, podemos adicionar papeis as variáveis do recipes, utilizando a função `update_role()`. Nesse exemplo atribuiremos as variáveis `flight` e `time_hour`, como variáveis de identificações `ID`.
+
+```{r}
+flights_rec <-
+  recipe(arr_delay ~ ., data = train_data) %>% 
+  update_role(flight, time_hour, new_role = "ID")
+```
+
+Adicionar papeis as variáveis é optional mas permite que as variáveis presentes na base não seja incluída no modelo.
+
+Para resumir os papeis de cada variável é possível utilizar a função `summary()`
+
+```{r}
+summary(flights_rec)
+```
+## Criando recursos
+É possível criar passos (step) nos recipes utilizando o pipe. É razoável que os atrasos tenham relação com a época do ano. É possível transformar a data em numérico para incluirmos no modelo. Podemos também extrair algumas variáveis derivada da data como o dia da semana, mês ou se é feriado. 
+
+É possível fazer tudo isso com as funções abaixo:
+
+```{r}
+flights_rec <- 
+  recipe(arr_delay ~ ., data = train_data) %>% 
+  # dow = day of the week
+  step_date(date, features = c("dow", "month")) %>%
+  # feriados
+  step_holiday(date,
+               holidays = timeDate::listHolidays("US"),
+               keep_original_cols = FALSE)
+```
+
+
+Portanto, `step_date` extraimos o dia da semana e o mes do ano de acordo com a data. Os feriados utilizamos a função `step_holiday`.
+
+Agora vamos observar os tipos de variaveis independentes. Precisamos transformar nossas variáveis factor em numericas para incluí-las no modelo logit. Portanto, criaremos dummies derivadas dessas variáveis.
+
+```{r}
+flights_rec <-
+  recipe(arr_delay ~ ., data = train_data) %>% 
+  step_date(date, features = c("dow", "month")) %>%
+  step_holiday(date,
+               holidays = timeDate::listHolidays("US"),
+               keep_original_cols = FALSE) %>% 
+  # transformando todas as variáveis string e factor para dummies
+  step_dummy(all_nominal_predictors())
+```
+
+Por fim, verificamos se há alguma infrequência ocorrida pelas variáveis categoricas criando dummies que não estão presentes em uma das bases. Por exemplo, o destino `LEX` está presente apenas na base de teste como mostra abaixo
+
+```{r}
+test_data %>% 
+  distinct(dest) %>% 
+  anti_join(train_data)
+```
+
+Por isso é importante utilizamos a função `step_zv()` que remove colunas que contem apenas um único valor. 
+
+```{r}
+flights_rec <-
+  recipe(arr_delay ~ ., data = train_data) %>% 
+  step_date(date, features = c("dow", "month")) %>%
+  step_holiday(date,
+               holidays = timeDate::listHolidays("US"),
+               keep_original_cols = FALSE) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors())
+```
+
+
+## Rodando o modelo com Recipe
+
+Antes de passar os dados para o modelo, especificamos o modelo com pacote `parsnip`.
+
+```{r}
+lr_mod <-
+  logistic_reg() %>% 
+  set_engine("glm")
+```
+
+
 
 
 
