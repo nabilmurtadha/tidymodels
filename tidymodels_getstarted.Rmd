@@ -253,6 +253,54 @@ flight_data %>%
   mutate(prop = n/sum(n))
 ```
 
+Antes de começarmos a criar o `recipe` vamos analisar algumas variáveis específicas. Dado que a variável `arr_delay` é um `factor` o nosso modelo será logistico.
+
+```{r}
+glimpse(flight_data)
+```
+
+As variáveis `flight` e `time_hour` não serão variáveis preditivas mas serão úteis para identificação de dados problematicos
+
+Resumo dos destinos e companhias.
+```{r}
+flight_data %>% 
+  skimr::skim(dest, carrier) 
+```
+A tabela acima diz que existem 104 destinos e 16 companhias aéreas, já que queremos fazer um modelo logit, essas variáveis categoricas precisam ser convertidas para Dummies, porém, temos muitas opções e algumas podem ser bem mais frequentes que outras. Discutiremos a seguir como lidar com esse "problema".
+
+## Data Splitting
+
+Data split basicamente é separar uma proporção dos dados para treinar o modelo (calcular os estimadores) e outra parte para testar os estimadores. Para realizarmos essa separação utilizamos as funções do pacot `rsample`.
+
+```{r}
+set.seed(222)
+
+# separando em 3/4
+data_split <- initial_split(flight_data, prop = 3/4)
+
+# criando os data.frames
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+```
+
+## Criando Recipe(Receita) e papeis.
+
+Criaremos agora recita para regressão logit simples. Antes de treinarmos o modelo criaremos receitas para criar novas variáveis e alguns processamento.
+
+```{r}
+flight_rec <- 
+  recipe(arr_delay ~., data = train_data)
+```
+
+A função `recipe()` possui dois argumentos.
+
+1. Formula: o lado esquerdo do tio (~) é a variavel dependente e do lado direito as variáveis independentes, "." significa todas outras variáveis, é possível indicar apenas alguns.
+
+2. Dados: para o `recipe()` usualmente é utilizado os dados de treinamento.
+
+
+
 
 
 
