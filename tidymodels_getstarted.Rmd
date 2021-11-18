@@ -446,5 +446,81 @@ flights_aug %>%
 
 # Avaliando o modelo com Resampling
 
+Aprendemos a criar um modelo e processar os dados com `recipe` antes de testar o modelo.
+Uma vez que temos o modelo treinado precisamos de medidas que avaliam a qualidade dos valores preditos. Podemos fazer isso baseado em reamostragem estatística.
+
+Para esse exemplo de resampling utilizaremos dados de imagem de celulas. Queremos prever a classe das celulas de acordo com os dados.
+
+```{r}
+data(cells, package = "modeldata")
+cells
+```
+
+Queremos prever quais celulas foram bem segmentadas ou mal segmentadas para melhorar a qualidade da base de dados final. 
+
+Portanto, a base possui a variável class com dois fatores: PS (mal segmentada) e WS (bem segmentada). Além disso, a base possui mais 56 variaveis independente baseado em medidas através de análise de imagem automatizada.
+
+Percebe-se que a base é desbalanceada, possui mais celulas mal segmentada do que bem segmentada.
+
+```{r}
+cells %>% 
+  count(class) %>% 
+  mutate(prop = n/sum(n))
+```
+
+## Data Splitting
+
+Separando a base em treino e teste.
+
+```{r}
+set.seed(123)
+
+cell_split <- initial_split(cells %>% select(-case),
+                            strata = class)
+```
+
+Utilizamos o argumento `strata =` para que a proporção fiquem igual entre os dados de treino e de teste. 
+
+Feito o split inicial separamos as bases. 75% para treino e 25% para teste
+
+```{r}
+cell_train <- training(cell_split)
+cell_test <- testing(cell_split)
+```
+
+Verificando se as proporções se mantiveram entre as bases de treino e teste
+
+```{r}
+
+# proporção das classes da base de treino
+cell_train %>% 
+  count(class) %>% 
+  mutate(prop = n/sum(n))
+
+# proporção das classes da base de teste
+cell_test %>% 
+  count(class) %>% 
+  mutate(prop = n/sum(n))
+```
+
+## Modelando
+
+Iremos utilizar o modelo de `Random Forest`. Um dos benefícios do Random Forest é que requer muito pouco manipulação dos dados.  Por isso, não iremos criar receita (`Recipe`).
+
+Em contra partida, o numero de arvores deve ser grande ( > 1000) fazendo o modelo ser exaustivo para os computadores. Portanto, para gerar o modelo com a base de dados de treino usaremos o pacote `parsnip` com a máquina `Ranger`.
+
+```{r}
+rf_mod <-
+  rand_forest(trees = 100) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+```
+
+
+```{r}
+
+```
+
+
 
 
