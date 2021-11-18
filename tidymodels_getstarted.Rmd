@@ -338,6 +338,7 @@ Agora vamos observar os tipos de variaveis independentes. Precisamos transformar
 ```{r}
 flights_rec <-
   recipe(arr_delay ~ ., data = train_data) %>% 
+  update_role(flight, time_hour, new_role = "ID") %>% 
   step_date(date, features = c("dow", "month")) %>%
   step_holiday(date,
                holidays = timeDate::listHolidays("US"),
@@ -359,12 +360,14 @@ Por isso é importante utilizamos a função `step_zv()` que remove colunas que 
 ```{r}
 flights_rec <-
   recipe(arr_delay ~ ., data = train_data) %>% 
+  update_role(flight, time_hour, new_role = "ID") %>% 
   step_date(date, features = c("dow", "month")) %>%
   step_holiday(date,
                holidays = timeDate::listHolidays("US"),
                keep_original_cols = FALSE) %>% 
   step_dummy(all_nominal_predictors()) %>% 
   step_zv(all_predictors())
+
 ```
 
 
@@ -378,10 +381,70 @@ lr_mod <-
   set_engine("glm")
 ```
 
+Especificando o modelo de regressão podemos processar o `recipe()` utilizando os dados de treinamento e para os dados de teste.
 
+Para simplificar, podemos criar um modelo de workflow que une o modelo e a receita.
 
+```{r}
+flights_wflow <-
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(flights_rec)
 
+flights_wflow
+```
 
+Criado o workflow podemos treinar o modelo.
+
+```{r}
+flights_fit <-
+  flights_wflow %>% 
+  fit(data = train_data)
+```
+
+Uma vez treinado podemos extrair os coeficientes ou os objetos da receita. Para fazer isso é só utilizar as funções `extract_fit_parsnip()` e `extract_recipe()`. No exemplo abaixo extraimos os coeficientes com `tidy()`
+
+```{r}
+flights_fit %>% 
+  extract_fit_parsnip() %>% 
+  tidy()
+```
+
+## Utilizando o workflow para predição
+
+Criamos o modelo, processamos a receita, criamos o workflow e por último treinamos o modelo. Agora vamos prever utilizando a base de dado de teste com a função `predict()`
+
+```{r}
+predict(flights_fit, test_data)
+```
+Dado que o a variável dependente é um fator, a predição será do mesmo formato. Apesar disso, podemos extrair a probabilidade de pertencer ao fator. Podemos utilizar isso com a função `predict(..., type = "prob")` ou utilizar a função `augment()`.
+
+```{r}
+flights_aug <-
+  augment(flights_fit, test_data)
+```
+
+```{r}
+flights_aug %>% 
+  select(arr_delay, time_hour, flight, .pred_class, .pred_on_time)
+```
+
+Agora que temos as predições podemos avaliar a performance do modelo. Podemos verificar a `ROC curve` como métrica de avaliação. A curva possui como eixos o `falso positivo x positivo verdadeiro`.
+
+```{r}
+flights_aug %>% 
+  roc_curve(truth = arr_delay, .pred_late) %>% 
+  autoplot()
+```
+
+Similar ao `roc_curve`, `roc_auc()` estima a área abaixo da curva
+
+```{r}
+flights_aug %>% 
+  roc_auc(truth = arr_delay, .pred_late)
+```
+
+# Avaliando o modelo com Resampling
 
 
 
